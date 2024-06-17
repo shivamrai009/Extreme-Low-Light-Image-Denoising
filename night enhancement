@@ -1,80 +1,75 @@
-import cv2
+  import cv2
 import numpy as np
-from matplotlib import pyplot as plt
 import os
 from tqdm import tqdm
 
 # Path to the folder containing images
-folder_path = r"C:\Users\91981\Desktop\OnePlus_Photo\Night_images"
-output_path = r'C:\Users\91981\Desktop\OnePlus_Photo\Night_images_enhanced'
+input_directory = r"C:\Users\91981\Desktop\OnePlus_Photo\Night_images"
+output_directory = r'C:\Users\91981\Desktop\OnePlus_Photo\Night_images_enhanced_shivam'
+
+# Create the output directory if it doesn't exist
+if not os.path.exists(output_directory):
+    os.makedirs(output_directory)
 
 # Get a list of all the image files in the folder
-image_files = [f for f in os.listdir(folder_path) if f.endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
-total_images = len(image_files)
+image_files_list = [file for file in os.listdir(input_directory) if file.endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
+total_files_count = len(image_files_list)
 
-# Define a function for image resizing
-def resize_image(img, size=(812, 612)):
-    return cv2.resize(img, size)
-
-# Define a function for image sharpening
-def sharpen_image(img):
-    kernel = np.array([[0, -7, 0], [-7, 10, -7], [0, -7, 0]])
-    img = cv2.bilateralFilter(img, 2, 8, 8)
-    gaussian_blur = cv2.GaussianBlur(img, (3, 3), 2)
-    return cv2.addWeighted(img, 1, gaussian_blur, -0.5, 0)
-
-# Define a function for brightness adjustment
-def adjust_brightness(img, value=6):
-    matrix = np.ones(img.shape, dtype="uint8") * value
-    return cv2.add(img, matrix)
-
-# Define a function for contrast adjustment
-def adjust_contrast(img, factor=1.5):
-    matrix1 = np.ones(img.shape) * factor
-    return np.uint8(np.clip(cv2.multiply(np.float64(img), matrix1), 0, 255))
-
-# Define a function for histogram equalization
-def hist_eq(img):
-    r, g, b = cv2.split(img)
-    eq_r = cv2.equalizeHist(r)
-    eq_g = cv2.equalizeHist(g)
-    eq_b = cv2.equalizeHist(b)
-    return cv2.merge((eq_r, eq_g, eq_b))
-
-# Define a function for saturation adjustment
-def adjust_saturation(img, factor=1.7):
-    hsv_img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    hsv_img[..., 1] = np.uint8(np.clip(hsv_img[..., 1] * factor, 20, 150))
-    return cv2.cvtColor(hsv_img, cv2.COLOR_HSV2BGR)
-
-# Define the main function to enhance night images
+# Define a function to enhance night images
 def enhance_night_images():
-    if not os.path.exists(output_path):
-        os.makedirs(output_path)
+    with tqdm(total=total_files_count, desc="Enhancing images") as progress:
+        for index, file_name in enumerate(image_files_list):
+            # Load the image
+            file_path = os.path.join(input_directory, file_name)
+            original_image = cv2.imread(file_path)
+            resized_image = cv2.resize(original_image, (812, 612))
 
-    with tqdm(total=total_images, desc="Processing images") as pbar:
-        for i, file_name in enumerate(image_files):
-            try:
-                img_path = os.path.join(folder_path, file_name)
-                img = cv2.imread(img_path)
-                if img is None:
-                    print(f"Warning: Unable to read {file_name}")
-                    continue
+            # Apply bilateral filter
+            filtered_image = cv2.bilateralFilter(resized_image, 2, 8, 8)
 
-                img = resize_image(img)
-                img = sharpen_image(img)
-                img = adjust_brightness(img)
-                img = adjust_contrast(img)
-                img = hist_eq(img)
-                img = adjust_saturation(img)
+            # Sharpen the image
+            blurred_image = cv2.GaussianBlur(filtered_image, (3, 3), 2)
+            sharpened_image = cv2.addWeighted(filtered_image, 1, blurred_image, -0.5, 0)
 
-                out_path = os.path.join(output_path, file_name)
-                cv2.imwrite(out_path, img)
+            # Adjust brightness and contrast
+            brightness_matrix = np.ones(sharpened_image.shape, dtype="uint8") * 6
+            contrast_matrix = np.ones(sharpened_image.shape) * 1.5
+            bright_image = cv2.add(sharpened_image, brightness_matrix)
+            bright_contrast_image = np.uint8(np.clip(cv2.multiply(np.float64(bright_image), contrast_matrix), 0, 255))
 
-                pbar.update(1)
-                pbar.set_postfix_str("{:.1f}%".format((i+1)/total_images*100))
-            except Exception as e:
-                print(f"Error processing {file_name}: {e}")
+            # Histogram equalization function
+            def equalize_histogram(image):
+                channels = cv2.split(image)
+                equalized_channels = [cv2.equalizeHist(channel) for channel in channels]
+                equalized_image = cv2.merge(equalized_channels)
+                return equalized_image
 
-# Calling the function for low light enhancement
+            # Apply histogram equalization
+            equalized_image = equalize_histogram(bright_contrast_image)
+
+            # Enhance the image further
+            diff_image = cv2.absdiff(bright_contrast_image, sharpened_image)
+            enhanced_image = cv2.add(6 * diff_image, sharpened_image)
+
+            # Adaptive thresholding
+            gray_image = cv2.cvtColor(enhanced_image, cv2.COLOR_BGR2GRAY)
+            adaptive_threshold = cv2.adaptiveThreshold(gray_image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2)
+            adaptive_threshold = cv2.bitwise_not(adaptive_threshold)
+            masked_image = cv2.add(enhanced_image, cv2.cvtColor(adaptive_threshold, cv2.COLOR_GRAY2BGR))
+            masked_image = cv2.bitwise_not(masked_image)
+
+            # Saturation adjustment
+            hsv_image = cv2.cvtColor(enhanced_image, cv2.COLOR_BGR2HSV)
+            hsv_image[..., 1] = np.uint8(np.clip(hsv_image[..., 1] * 1.7, 20, 150))
+            final_image = cv2.cvtColor(hsv_image, cv2.COLOR_HSV2BGR)
+
+            # Save the enhanced image
+            output_path = os.path.join(output_directory, file_name)
+            cv2.imwrite(output_path, final_image)
+
+            # Update the progress bar
+            progress.update(1)
+            progress.set_postfix_str("{:.1f}%".format((index + 1) / total_files_count * 100))
+
+# Call the function to enhance low light images
 enhance_night_images()
